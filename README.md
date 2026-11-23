@@ -1,51 +1,67 @@
 # odemi
 
 Site institucional da Odemi — identidade visual e sites de alto padrão.
-HTML/CSS estático, sem build. Página única, desktop e mobile.
+
+**Stack:** Next.js 15 (App Router) · TypeScript · Tailwind CSS v4 · Motion · Lenis · Zod · Resend
 
 ## Rodar
 
 ```bash
-npx serve .
+npm install
+cp .env.example .env.local
+npm run dev
 ```
 
-## Estrutura
+Build de produção: `npm run build && npm start`. Deploy recomendado: Vercel (zero config).
+
+## Arquitetura
 
 ```
-index.html            página única (header, hero, serviços, processo, exemplos, contato, rodapé)
-styles/tokens.css     cores, tipografia, espaço, movimento — fonte única de verdade
-styles/base.css       reset, escala tipográfica, grid de 12 colunas, .wrap, .section-head
-styles/components.css logo, btn, nav-link, header, menu, rule-list, service-card,
-                      process-step, example-card, tag, contact-field, field, footer
-styles/sections.css   composição por seção + entrada do hero
-scripts/main.js       menu mobile, seção ativa, filetes do processo, formulário (layout)
-assets/               logo.svg, favicon.svg
+src/
+  app/
+    layout.tsx            fontes (next/font), metadata, rolagem suave, cursor
+    page.tsx              composição das seções
+    globals.css           tokens (@theme) → utilitários bg-marinho, text-latao, text-display…
+    api/contato/route.ts  validação Zod + envio Resend + honeypot + rate limit
+    opengraph-image.tsx   imagem de compartilhamento gerada
+    sitemap.ts · robots.ts · icon.svg
+  content/site.ts         TODO o texto do site (fonte única de verdade)
+  lib/                    contact-schema (compartilhado cliente/servidor), cn
+  components/
+    brand/   Logo, Monogram
+    ui/      Button (magnético), Cursor, Reveal (SplitReveal, FadeIn, SectionHead)
+    layout/  Header (adaptativo ao tema da seção), Footer, SmoothScroll
+    sections/ Hero, Marquee, Manifesto, Services, Process, Examples, Contact
 ```
 
-## Pendências de conteúdo
+**Convenções**
+- Texto só em `content/site.ts`. Layout não carrega copy.
+- Cada seção declara `data-theme="dark|light"`; o header lê isso para trocar de cor.
+- Animações respeitam `prefers-reduced-motion` (Lenis, cursor e transições desligam).
 
-- E-mail, WhatsApp, CNPJ/MEI e política de privacidade: **a confirmar**.
-- Formulário é só layout: não envia nada até os canais serem definidos.
-- Textos de serviços, processo e exemplos são rascunho inicial para revisão.
+## Movimento
 
-## Configuração do Claude Code
-
-### Skills (`.claude/skills/`)
-
-| Pacote | Skills |
+| Seção | Interação |
 |---|---|
-| `emilkowalski/skills` | animação, gestos, design engineering, revisão de UI (20 skills) |
-| `Leonxlnx/taste-skill` | `design-taste-frontend` |
-| `pbakaus/impeccable` | `impeccable` |
+| Hero | título revelado palavra a palavra, monograma desenhado que reage ao cursor e gira com a rolagem, brilho de latão seguindo o ponteiro |
+| Manifesto | seção fixada; o texto acende palavra a palavra conforme a rolagem |
+| Serviços | cards empilhados (sticky) que recuam conforme o próximo entra — desktop |
+| Processo | trilho horizontal fixado com filetes preenchidos pela rolagem — desktop |
+| Exemplos | mockups com inclinação 3D e reflexo no hover |
+| Global | rolagem suave, cursor customizado, botões magnéticos, header que se esconde ao descer |
 
-Versões fixadas em `skills-lock.json`. Atualizar com:
+## Variáveis de ambiente
 
-```bash
-npx skills update -p
-```
+Ver `.env.example`. Sem `RESEND_API_KEY`/`CONTACT_TO`/`CONTACT_FROM` o formulário valida, mas a API responde 503 com aviso de envio inativo. Sem `NEXT_PUBLIC_CONTACT_EMAIL`/`NEXT_PUBLIC_WHATSAPP` o site exibe "A confirmar".
 
-### MCP (`.mcp.json`)
+## Pendências
 
-- **playwright** — `@playwright/mcp`, headless, usando o Chromium pré-instalado em `/opt/pw-browsers/chromium` (ambiente cloud do Claude Code).
+- E-mail, WhatsApp, CNPJ/MEI, política de privacidade e domínio.
+- Conta Resend + domínio verificado para o formulário.
+- Textos de serviços, processo, exemplos e manifesto são rascunho para revisão.
+- Exemplos são ilustrativos; substituir por cases reais quando existirem.
 
-Para rodar localmente, remova os argumentos `--no-sandbox` e `--executable-path ...` do `.mcp.json` (ou rode `npx playwright install chromium`).
+## Claude Code
+
+- Skills em `.claude/skills/` (`emilkowalski/skills`, `Leonxlnx/taste-skill`, `pbakaus/impeccable`), versões em `skills-lock.json` — atualizar com `npx skills update -p`.
+- MCP `playwright` em `.mcp.json`, usando o Chromium do ambiente cloud (`/opt/pw-browsers/chromium`). Localmente, remova `--no-sandbox` e `--executable-path`.
