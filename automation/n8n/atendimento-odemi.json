@@ -1,0 +1,1173 @@
+{
+  "name": "Odemi — Atendimento automático (WhatsApp + Site)",
+  "nodes": [
+    {
+      "id": "a19afb79-8cee-478b-9373-68d19e434167",
+      "name": "Nota WhatsApp",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -80,
+        -320
+      ],
+      "parameters": {
+        "width": 760,
+        "height": 260,
+        "color": 7,
+        "content": "## Atendimento WhatsApp — Odemi\n\nEvolution API → normaliza → grava lead → agente (OpenAI + memória Postgres) → responde.\nO agente salva a qualificação e pede transferência por ferramentas. Lead **quente** ou transferido gera aviso no WhatsApp do responsável e pausa o bot.\n\n**Assumir a conversa:** envie `#bot off` no próprio chat com o cliente. `#bot on` devolve ao bot.\n\nVariáveis de ambiente: `EVOLUTION_URL`, `EVOLUTION_INSTANCE`, `OWNER_PHONE`."
+      }
+    },
+    {
+      "id": "66a6ea2f-5e56-42f5-a361-15c04d954bbd",
+      "name": "Nota Site",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -80,
+        900
+      ],
+      "parameters": {
+        "width": 760,
+        "height": 180,
+        "color": 7,
+        "content": "## Formulário do site\n\n`POST /webhook/odemi-site` com header de autenticação. Grava o lead (canal `site`), avisa o responsável no WhatsApp e responde `{ ok: true }` para o site."
+      }
+    },
+    {
+      "id": "19efeeb4-ca07-4eca-8ff8-73a41dadb323",
+      "name": "Webhook WhatsApp",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        0,
+        300
+      ],
+      "webhookId": "6a84a707-008d-453b-a48a-f8c5d869d3a3",
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "odemi-whatsapp",
+        "responseMode": "onReceived",
+        "options": {}
+      }
+    },
+    {
+      "id": "8e1fc6ca-9e44-48c2-87cd-23d1dee9c28a",
+      "name": "Normalizar WhatsApp",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        220,
+        300
+      ],
+      "parameters": {
+        "jsCode": "// Normaliza o evento messages.upsert da Evolution API (v2)\n// e decide a rota: comando | sem_texto | mensagem | ignorar\nconst body = $input.first().json.body ?? $input.first().json;\nconst data = body.data ?? {};\nconst key = data.key ?? {};\nconst jid = String(key.remoteJid ?? '');\nconst msg = data.message ?? {};\n\nconst text = String(\n  msg.conversation ??\n  msg.extendedTextMessage?.text ??\n  msg.imageMessage?.caption ??\n  msg.videoMessage?.caption ??\n  ''\n).trim();\n\n// telefone só com dígitos (seguro para SQL e para a Evolution)\nconst phone = jid.split('@')[0].replace(/\\D/g, '');\n// nome sem vírgulas: parâmetros de query do n8n são separados por vírgula\nconst name = String(data.pushName ?? '').replace(/,/g, ' ').trim().slice(0, 120);\n\nconst isGroup = jid.endsWith('@g.us') || jid.includes('broadcast');\nconst fromMe = key.fromMe === true;\nconst isCommand = fromMe && /^#bot\\s+(on|off)\\b/i.test(text);\n\nlet route = 'mensagem';\nif (body.event !== 'messages.upsert' || isGroup || !phone) route = 'ignorar';\nelse if (isCommand) route = 'comando';\nelse if (fromMe) route = 'ignorar';\nelse if (!text) route = 'sem_texto';\n\nreturn [{ json: {\n  route,\n  phone,\n  name,\n  text: text.slice(0, 4000),\n  botOff: isCommand ? /off/i.test(text) : null,\n  messageId: key.id ?? null,\n}}];"
+      }
+    },
+    {
+      "id": "b519d498-68ed-48e6-aa18-91ae6a566113",
+      "name": "Roteador",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.2,
+      "position": [
+        440,
+        300
+      ],
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "8abb3f9d-a8a3-48e4-ae60-6bbcb4d380cc",
+                    "leftValue": "={{ $json.route }}",
+                    "rightValue": "mensagem",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "mensagem"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "048ce684-e783-4eeb-b127-150d98c8896e",
+                    "leftValue": "={{ $json.route }}",
+                    "rightValue": "sem_texto",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "sem_texto"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "e6dc45d5-336e-4f6a-945a-bbe89a6c146e",
+                    "leftValue": "={{ $json.route }}",
+                    "rightValue": "comando",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "comando"
+            }
+          ]
+        },
+        "options": {
+          "fallbackOutput": "none"
+        }
+      }
+    },
+    {
+      "id": "c7e06fe5-be47-4228-9d96-c2ce0e23c5a6",
+      "name": "Pausar ou retomar bot",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        700,
+        620
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE leads SET bot_paused = $1::boolean, updated_at = now() WHERE phone = $2;",
+        "options": {
+          "queryReplacement": "={{ $json.botOff }},{{ $json.phone }}"
+        }
+      },
+      "credentials": {
+        "postgres": {
+          "id": "",
+          "name": "Postgres Odemi"
+        }
+      }
+    },
+    {
+      "id": "066d36d2-d213-4551-9d95-a61fd902263f",
+      "name": "Responder sem texto",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        700,
+        460
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.EVOLUTION_URL }}/message/sendText/{{ $env.EVOLUTION_INSTANCE }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ number: $json.phone, text: 'Por aqui eu consigo ler apenas mensagens de texto. Pode me escrever em poucas palavras o que precisa?' }) }}",
+        "options": {
+          "timeout": 15000
+        }
+      },
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "",
+          "name": "Evolution API"
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000
+    },
+    {
+      "id": "8b8e5ab5-d9ae-490c-ac8d-f41449ebda0b",
+      "name": "Registrar lead",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        700,
+        280
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO leads (phone, name, channel, last_message_at)\nVALUES ($1, NULLIF($2, ''), 'whatsapp', now())\nON CONFLICT (phone) DO UPDATE SET\n  name = COALESCE(leads.name, EXCLUDED.name),\n  last_message_at = now(),\n  updated_at = now()\nRETURNING *;",
+        "options": {
+          "queryReplacement": "={{ $json.phone }},{{ $json.name }}"
+        }
+      },
+      "credentials": {
+        "postgres": {
+          "id": "",
+          "name": "Postgres Odemi"
+        }
+      }
+    },
+    {
+      "id": "1dfe8ec0-b789-4093-830e-a784f1877c5b",
+      "name": "Bot ativo?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        920,
+        280
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "8569e942-3192-47c0-a656-b16987f234d0",
+              "leftValue": "={{ $json.bot_paused }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "false",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "94584765-da90-4cb1-9da1-d1db1f8c565d",
+      "name": "Agente Odemi",
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 1.9,
+      "position": [
+        1160,
+        260
+      ],
+      "parameters": {
+        "promptType": "define",
+        "text": "={{ $('Normalizar WhatsApp').first().json.text }}",
+        "options": {
+          "systemMessage": "=Você é o atendimento da Odemi no WhatsApp. A Odemi é um estúdio de identidade visual e sites de alto padrão para negócios como clínicas de estética, escritórios de advocacia, consultorias, arquitetura e infoprodutores.\n\nTOM\nCordial, direto e discreto. Frases curtas. No máximo um emoji, raramente. Sem gírias, sem tom promocional.\n\nOBJETIVO\n1. Responder dúvidas sobre serviços e processo.\n2. Entender o projeto do cliente para qualificar o contato.\n\nSERVIÇOS\n- Identidade visual: diagnóstico e posicionamento, logotipo e monograma, paleta, tipografia e grid, manual de uso da marca.\n- Site institucional: arquitetura de conteúdo, design responsivo, desenvolvimento e publicação, SEO técnico e desempenho.\n- Página de conversão: roteiro de texto, design orientado à ação, integração com WhatsApp e formulário, medição de acessos.\nPROCESSO: quatro etapas, com aprovação em cada uma — Entendimento, Direção, Produção, Entrega.\n\nREGRAS\n- Nunca informe preços, valores ou estimativas. Diga que os valores são sob consulta, conforme o escopo, e que a proposta é enviada depois de entender o projeto.\n- Nunca prometa resultados, prazos fechados, faturamento ou posição no Google.\n- Nunca invente clientes, cases, depoimentos ou números.\n- Se não souber algo, diga que vai confirmar com a equipe e use a ferramenta transferir_humano.\n- Uma pergunta por vez. No máximo três parágrafos curtos por resposta.\n\nQUALIFICAÇÃO (colete ao longo da conversa, sem parecer formulário)\n1. Nome e segmento do negócio\n2. Serviço de interesse\n3. Objetivo principal do projeto\n4. Prazo desejado\n5. Faixa de investimento prevista — pergunte com cuidado, oferecendo: até R$ 5 mil, de R$ 5 a 15 mil, acima de R$ 15 mil, ainda não definido.\nSempre que obtiver informação nova, use salvar_qualificacao com tudo o que já sabe até ali.\nClassificação:\n- quente: serviço e prazo definidos (até 60 dias) e investimento compatível;\n- morno: interesse claro, mas prazo ou investimento indefinidos;\n- frio: apenas pesquisando ou fora do perfil.\n\nENCAMINHAMENTO\nUse transferir_humano quando o cliente pedir para falar com uma pessoa, pedir proposta ou reunião, ou quando a qualificação estiver completa. Depois avise que alguém da equipe continua a conversa por aqui em breve.\n\nData de hoje: {{ $now.setZone('America/Sao_Paulo').toFormat('dd/MM/yyyy') }}.",
+          "maxIterations": 6
+        }
+      }
+    },
+    {
+      "id": "217b5d02-d88e-45df-b358-5c5bc5800eba",
+      "name": "OpenAI",
+      "type": "@n8n/n8n-nodes-langchain.lmChatOpenAi",
+      "typeVersion": 1.2,
+      "position": [
+        1000,
+        520
+      ],
+      "parameters": {
+        "model": {
+          "__rl": true,
+          "value": "gpt-4.1-mini",
+          "mode": "list",
+          "cachedResultName": "gpt-4.1-mini"
+        },
+        "options": {
+          "temperature": 0.4,
+          "maxTokens": 600
+        }
+      },
+      "credentials": {
+        "openAiApi": {
+          "id": "",
+          "name": "OpenAI"
+        }
+      }
+    },
+    {
+      "id": "ca9f189f-8dfe-45c3-98f8-d5b015f1beac",
+      "name": "Memória Postgres",
+      "type": "@n8n/n8n-nodes-langchain.memoryPostgresChat",
+      "typeVersion": 1.3,
+      "position": [
+        1140,
+        520
+      ],
+      "parameters": {
+        "sessionIdType": "customKey",
+        "sessionKey": "=wa:{{ $('Normalizar WhatsApp').first().json.phone }}",
+        "tableName": "n8n_chat_histories",
+        "contextWindowLength": 20
+      },
+      "credentials": {
+        "postgres": {
+          "id": "",
+          "name": "Postgres Odemi"
+        }
+      }
+    },
+    {
+      "id": "5280e4ca-f35a-4727-a9ef-8c199fa51c93",
+      "name": "salvar_qualificacao",
+      "type": "n8n-nodes-base.postgresTool",
+      "typeVersion": 2.5,
+      "position": [
+        1280,
+        520
+      ],
+      "parameters": {
+        "descriptionType": "manual",
+        "toolDescription": "Salva ou atualiza a qualificação do lead atual. Envie tudo o que já sabe; campos desconhecidos vão vazios.",
+        "operation": "update",
+        "schema": {
+          "__rl": true,
+          "value": "public",
+          "mode": "list",
+          "cachedResultName": "public"
+        },
+        "table": {
+          "__rl": true,
+          "value": "leads",
+          "mode": "list",
+          "cachedResultName": "leads"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "matchingColumns": [
+            "phone"
+          ],
+          "schema": [
+            {
+              "id": "phone",
+              "displayName": "phone",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "segment",
+              "displayName": "segment",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "service",
+              "displayName": "service",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "goal",
+              "displayName": "goal",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "timeline",
+              "displayName": "timeline",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "budget",
+              "displayName": "budget",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "summary",
+              "displayName": "summary",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "score",
+              "displayName": "score",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "handoff",
+              "displayName": "handoff",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "boolean",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "handoff_reason",
+              "displayName": "handoff_reason",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            }
+          ],
+          "value": {
+            "phone": "={{ $('Normalizar WhatsApp').first().json.phone }}",
+            "segment": "={{ $fromAI('segmento', 'Segmento do negócio, ex.: clínica de estética', 'string') }}",
+            "service": "={{ $fromAI('servico', 'Identidade visual, Site institucional, Página de conversão ou Projeto completo', 'string') }}",
+            "goal": "={{ $fromAI('objetivo', 'Objetivo principal do projeto, em uma frase', 'string') }}",
+            "timeline": "={{ $fromAI('prazo', 'Prazo desejado, ex.: 30 dias', 'string') }}",
+            "budget": "={{ $fromAI('investimento', 'até 5 mil | 5 a 15 mil | acima de 15 mil | não definido', 'string') }}",
+            "summary": "={{ $fromAI('resumo', 'Resumo do lead em até 3 frases para o responsável', 'string') }}",
+            "score": "={{ $fromAI('classificacao', 'quente, morno ou frio', 'string') }}"
+          }
+        },
+        "options": {}
+      },
+      "credentials": {
+        "postgres": {
+          "id": "",
+          "name": "Postgres Odemi"
+        }
+      }
+    },
+    {
+      "id": "6150335f-d90a-4588-aacb-e32122b85c77",
+      "name": "transferir_humano",
+      "type": "n8n-nodes-base.postgresTool",
+      "typeVersion": 2.5,
+      "position": [
+        1420,
+        520
+      ],
+      "parameters": {
+        "descriptionType": "manual",
+        "toolDescription": "Encaminha a conversa para uma pessoa da equipe. Use quando o cliente pedir, pedir proposta ou reunião, ou quando a qualificação estiver completa.",
+        "operation": "update",
+        "schema": {
+          "__rl": true,
+          "value": "public",
+          "mode": "list",
+          "cachedResultName": "public"
+        },
+        "table": {
+          "__rl": true,
+          "value": "leads",
+          "mode": "list",
+          "cachedResultName": "leads"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "matchingColumns": [
+            "phone"
+          ],
+          "schema": [
+            {
+              "id": "phone",
+              "displayName": "phone",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "segment",
+              "displayName": "segment",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "service",
+              "displayName": "service",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "goal",
+              "displayName": "goal",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "timeline",
+              "displayName": "timeline",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "budget",
+              "displayName": "budget",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "summary",
+              "displayName": "summary",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "score",
+              "displayName": "score",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "handoff",
+              "displayName": "handoff",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "boolean",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "handoff_reason",
+              "displayName": "handoff_reason",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            }
+          ],
+          "value": {
+            "phone": "={{ $('Normalizar WhatsApp').first().json.phone }}",
+            "handoff": true,
+            "handoff_reason": "={{ $fromAI('motivo', 'Motivo do encaminhamento, em uma frase', 'string') }}"
+          }
+        },
+        "options": {}
+      },
+      "credentials": {
+        "postgres": {
+          "id": "",
+          "name": "Postgres Odemi"
+        }
+      }
+    },
+    {
+      "id": "4b8b7ae9-3284-43ae-9862-6276ede9dd67",
+      "name": "Enviar resposta",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1520,
+        260
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.EVOLUTION_URL }}/message/sendText/{{ $env.EVOLUTION_INSTANCE }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ number: $('Normalizar WhatsApp').first().json.phone, text: $json.output }) }}",
+        "options": {
+          "timeout": 15000
+        }
+      },
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "",
+          "name": "Evolution API"
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000
+    },
+    {
+      "id": "59ddbd2c-3f9e-4373-9732-2ab7e90bf57e",
+      "name": "Ler lead",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        1740,
+        260
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT * FROM leads WHERE phone = $1 LIMIT 1;",
+        "options": {
+          "queryReplacement": "={{ $('Normalizar WhatsApp').first().json.phone }}"
+        }
+      },
+      "credentials": {
+        "postgres": {
+          "id": "",
+          "name": "Postgres Odemi"
+        }
+      }
+    },
+    {
+      "id": "68132f35-4921-4727-9c29-a313aa34b964",
+      "name": "Avisar responsável?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1960,
+        260
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": false,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "78a02346-8242-4848-920c-1b86c73aa54a",
+              "leftValue": "={{ !$json.owner_notified && ($json.handoff === true || $json.score === 'quente') }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "b0fd7365-6d44-4b9a-86f8-deb575bc0fa4",
+      "name": "Avisar no WhatsApp",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2180,
+        240
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.EVOLUTION_URL }}/message/sendText/{{ $env.EVOLUTION_INSTANCE }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ number: $env.OWNER_PHONE, text: '*Novo lead ' + ($json.handoff ? '— pediu atendimento' : '— quente') + '*\\n\\n' + 'Nome: ' + ($json.name || '—') + '\\n' + 'WhatsApp: wa.me/' + $json.phone + '\\n' + 'Segmento: ' + ($json.segment || '—') + '\\n' + 'Serviço: ' + ($json.service || '—') + '\\n' + 'Prazo: ' + ($json.timeline || '—') + '\\n' + 'Investimento: ' + ($json.budget || '—') + '\\n' + 'Classificação: ' + ($json.score || '—') + '\\n\\n' + ($json.summary || '') + ($json.handoff_reason ? '\\nMotivo: ' + $json.handoff_reason : '') + ($json.handoff ? '\\n\\nBot pausado nesta conversa. Envie #bot on no chat para reativar.' : '') }) }}",
+        "options": {
+          "timeout": 15000
+        }
+      },
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "",
+          "name": "Evolution API"
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000
+    },
+    {
+      "id": "1b4c048c-3f26-4e53-a10f-7606cfd69527",
+      "name": "Marcar avisado",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        2400,
+        240
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE leads SET owner_notified = true, bot_paused = handoff, updated_at = now() WHERE phone = $1;",
+        "options": {
+          "queryReplacement": "={{ $('Ler lead').first().json.phone }}"
+        }
+      },
+      "credentials": {
+        "postgres": {
+          "id": "",
+          "name": "Postgres Odemi"
+        }
+      }
+    },
+    {
+      "id": "e8dfc2b8-aa3b-4d62-9548-4aae58ba867a",
+      "name": "Webhook Site",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        0,
+        1160
+      ],
+      "webhookId": "baffb0e5-42e5-49b5-80a6-478608ff2546",
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "odemi-site",
+        "authentication": "headerAuth",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "",
+          "name": "Webhook Site Odemi"
+        }
+      }
+    },
+    {
+      "id": "67c7fafb-e43e-40ea-9da2-c20d8e788890",
+      "name": "Normalizar Site",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        220,
+        1160
+      ],
+      "parameters": {
+        "jsCode": "// Normaliza o payload enviado pelo site (POST /api/contato -> n8n)\nconst b = $input.first().json.body ?? {};\nconst clean = (v, max = 500) => String(v ?? '').trim().slice(0, max);\nreturn [{ json: {\n  name: clean(b.nome, 120),\n  email: clean(b.email, 200).toLowerCase(),\n  company: clean(b.empresa, 160),\n  service: clean(b.tipo, 80),\n  message: clean(b.mensagem, 4000),\n}}];"
+      }
+    },
+    {
+      "id": "7abcb2d3-afe6-45ff-9be7-6f5da37cac3c",
+      "name": "Gravar lead do site",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        440,
+        1160
+      ],
+      "parameters": {
+        "operation": "insert",
+        "schema": {
+          "__rl": true,
+          "value": "public",
+          "mode": "list",
+          "cachedResultName": "public"
+        },
+        "table": {
+          "__rl": true,
+          "value": "leads",
+          "mode": "list",
+          "cachedResultName": "leads"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "name",
+              "displayName": "name",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "email",
+              "displayName": "email",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "company",
+              "displayName": "company",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "service",
+              "displayName": "service",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "summary",
+              "displayName": "summary",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "channel",
+              "displayName": "channel",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "score",
+              "displayName": "score",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            }
+          ],
+          "value": {
+            "name": "={{ $json.name }}",
+            "email": "={{ $json.email }}",
+            "company": "={{ $json.company }}",
+            "service": "={{ $json.service }}",
+            "summary": "={{ $json.message }}",
+            "channel": "site"
+          }
+        },
+        "options": {}
+      },
+      "credentials": {
+        "postgres": {
+          "id": "",
+          "name": "Postgres Odemi"
+        }
+      }
+    },
+    {
+      "id": "f6da6363-78a0-471d-a5ac-910298b63af5",
+      "name": "Avisar contato do site",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        660,
+        1160
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.EVOLUTION_URL }}/message/sendText/{{ $env.EVOLUTION_INSTANCE }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ number: $env.OWNER_PHONE, text: '*Novo contato pelo site*\\n\\n' + 'Nome: ' + $('Normalizar Site').first().json.name + '\\n' + 'E-mail: ' + $('Normalizar Site').first().json.email + '\\n' + 'Empresa: ' + ($('Normalizar Site').first().json.company || '—') + '\\n' + 'Serviço: ' + $('Normalizar Site').first().json.service + '\\n\\n' + $('Normalizar Site').first().json.message }) }}",
+        "options": {
+          "timeout": 15000
+        }
+      },
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "",
+          "name": "Evolution API"
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000,
+      "onError": "continueRegularOutput"
+    },
+    {
+      "id": "ca4f4355-9d56-4c01-bce9-7cea01cb4409",
+      "name": "Responder ao site",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        880,
+        1160
+      ],
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ { ok: true } }}",
+        "options": {}
+      }
+    }
+  ],
+  "connections": {
+    "Webhook WhatsApp": {
+      "main": [
+        [
+          {
+            "node": "Normalizar WhatsApp",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalizar WhatsApp": {
+      "main": [
+        [
+          {
+            "node": "Roteador",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Roteador": {
+      "main": [
+        [
+          {
+            "node": "Registrar lead",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Responder sem texto",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Pausar ou retomar bot",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Registrar lead": {
+      "main": [
+        [
+          {
+            "node": "Bot ativo?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Bot ativo?": {
+      "main": [
+        [
+          {
+            "node": "Agente Odemi",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OpenAI": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Agente Odemi",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Memória Postgres": {
+      "ai_memory": [
+        [
+          {
+            "node": "Agente Odemi",
+            "type": "ai_memory",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "salvar_qualificacao": {
+      "ai_tool": [
+        [
+          {
+            "node": "Agente Odemi",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "transferir_humano": {
+      "ai_tool": [
+        [
+          {
+            "node": "Agente Odemi",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Agente Odemi": {
+      "main": [
+        [
+          {
+            "node": "Enviar resposta",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Enviar resposta": {
+      "main": [
+        [
+          {
+            "node": "Ler lead",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ler lead": {
+      "main": [
+        [
+          {
+            "node": "Avisar responsável?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Avisar responsável?": {
+      "main": [
+        [
+          {
+            "node": "Avisar no WhatsApp",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Avisar no WhatsApp": {
+      "main": [
+        [
+          {
+            "node": "Marcar avisado",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Webhook Site": {
+      "main": [
+        [
+          {
+            "node": "Normalizar Site",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalizar Site": {
+      "main": [
+        [
+          {
+            "node": "Gravar lead do site",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Gravar lead do site": {
+      "main": [
+        [
+          {
+            "node": "Avisar contato do site",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Avisar contato do site": {
+      "main": [
+        [
+          {
+            "node": "Responder ao site",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "timezone": "America/Sao_Paulo",
+    "saveManualExecutions": true
+  },
+  "tags": []
+}
