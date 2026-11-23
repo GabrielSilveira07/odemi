@@ -1,0 +1,88 @@
+/* ==========================================================================
+   Odemi — design tokens
+   Fonte única de verdade para cor, tipografia, espaço e movimento.
+   ========================================================================== */
+
+:root {
+  /* Cor — paleta aprovada */
+  --c-marinho: #0F1B2D;   /* principal, hero, fundos escuros */
+  --c-latao:   #9A7B4F;   /* acento: filetes, numeração, bordas de botão */
+  --c-tinta:   #0E0E0E;   /* texto principal, rodapé */
+  --c-marfim:  #F4F1EA;   /* fundo base */
+  --c-pedra:   #B9B3A7;   /* bordas, texto secundário em fundo escuro */
+  --c-grafite: #2B2D31;   /* texto de corpo */
+  --c-cafe:    #3E2F24;   /* seção de exemplos */
+
+  /* Papéis semânticos (superfície clara por padrão) */
+  --bg: var(--c-marfim);
+  --fg: var(--c-tinta);
+  --fg-body: var(--c-grafite);
+  --fg-muted: #6B675F;           /* pedra escurecida p/ contraste AA em marfim */
+  --line: var(--c-pedra);
+  --accent: var(--c-latao);
+
+  /* Tipografia */
+  --font-serif: "Cormorant Garamond", Georgia, "Times New Roman", serif;
+  --font-sans: "Inter", "Helvetica Neue", Helvetica, Arial, sans-serif;
+
+  --fs-h1: 4rem;      --lh-h1: 4.5rem;     /* 64/72 */
+  --fs-h2: 2.625rem;  --lh-h2: 3rem;       /* 42/48 */
+  --fs-h3: 1.375rem;  --lh-h3: 1.75rem;    /* 22/28 */
+  --fs-body: 1rem;    --lh-body: 1.625rem; /* 16/26 */
+  --fs-small: 0.8125rem; --lh-small: 1.25rem; /* 13/20 */
+  --fs-eyebrow: 0.6875rem;                 /* 11px */
+  --ls-eyebrow: 0.22em;
+  --ls-wordmark: 0.2em;
+
+  /* Layout */
+  --container: 1100px;
+  --gutter: 56px;
+  --col-gap: 24px;
+  --header-h: 72px;
+  --section-pad: 144px;
+
+  /* Espaço (base 8) */
+  --s-1: 8px;  --s-2: 16px; --s-3: 24px; --s-4: 32px;
+  --s-5: 48px; --s-6: 64px; --s-7: 96px; --s-8: 128px;
+
+  /* Linha e movimento */
+  --hair: 1px;
+  --ease: cubic-bezier(0.2, 0.7, 0.2, 1);
+  --t-fast: 200ms;
+  --t-enter: 900ms;
+}
+
+@media (max-width: 1024px) {
+  :root {
+    --fs-h1: 3.25rem; --lh-h1: 3.75rem;
+    --fs-h2: 2.25rem; --lh-h2: 2.625rem;
+    --section-pad: 112px;
+  }
+}
+
+@media (max-width: 640px) {
+  :root {
+    --gutter: 24px;
+    --col-gap: 16px;
+    --header-h: 64px;
+    --section-pad: 88px;
+    --fs-h1: 2.5rem;  --lh-h1: 2.875rem;
+    --fs-h2: 2rem;    --lh-h2: 2.375rem;
+    --fs-h3: 1.25rem; --lh-h3: 1.625rem;
+  }
+}
+
+/* Superfícies escuras: reaplicam os papéis semânticos */
+.surface-marinho,
+.surface-cafe,
+.surface-tinta {
+  --fg: var(--c-marfim);
+  --fg-body: #D9D4CA;
+  --fg-muted: var(--c-pedra);
+  --line: rgba(185, 179, 167, 0.32);
+  color: var(--fg-body);
+}
+.surface-marinho { --bg: var(--c-marinho); background: var(--c-marinho); }
+.surface-cafe    { --bg: var(--c-cafe);    background: var(--c-cafe); }
+.surface-tinta   { --bg: var(--c-tinta);   background: var(--c-tinta); }
+.surface-marfim  { --bg: var(--c-marfim);  background: var(--c-marfim); color: var(--fg-body); }
