@@ -34,15 +34,6 @@ export const hero = {
   cta: { label: "Solicitar uma conversa", href: "#contato" },
 };
 
-export const disciplines = [
-  "Identidade visual",
-  "Sites institucionais",
-  "Páginas de conversão",
-  "Direção de arte",
-  "Sistemas de marca",
-  "Tipografia",
-];
-
 export const manifesto = {
   eyebrow: "Princípio",
   text:

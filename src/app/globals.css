@@ -107,10 +107,6 @@ body {
   }
 }
 
-@keyframes marquee {
-  to { transform: translateX(-50%); }
-}
-
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {
     animation-duration: 0ms !important;
